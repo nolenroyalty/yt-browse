@@ -44,6 +44,13 @@ const (
 	sortByDuration
 )
 
+type sortDir int
+
+const (
+	sortDesc sortDir = iota // natural: newest, most views, longest
+	sortAsc                 // reverse: oldest, fewest views, shortest
+)
+
 type filterMode int
 
 const (
@@ -71,12 +78,14 @@ type Model struct {
 	playlistLoadState loadState
 	playlists         []youtube.Playlist
 	playlistSort      sortField
+	playlistSortDir   sortDir
 
 	// Videos (uploads)
 	videoList       list.Model
 	videoLoadState  loadState
 	videos          []youtube.Video
 	videoSort       sortField
+	videoSortDir    sortDir
 	videoProgressCh <-chan videoLoadingMsg
 	videoTotal      int
 	videoLoaded     int
@@ -89,6 +98,7 @@ type Model struct {
 	playlistVideoLoadState  loadState
 	playlistVideos          []youtube.Video
 	playlistVideoSort       sortField
+	playlistVideoSortDir    sortDir
 
 	// Filter: we manage our own filter instead of using the list's built-in one
 	filterInput textinput.Model
@@ -158,7 +168,8 @@ func New(cfg *config.Config, ytClient *youtube.Client, cacheStore *cache.Store, 
 		detailViewport: vp,
 		showDetail:     true,
 		playlistSort:   sortNone,
-		videoSort:      sortNone,
+		videoSort:      sortByDate,
+		videoSortDir:   sortDesc,
 	}
 }
 
@@ -250,24 +261,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleEnter()
 
 		case key.Matches(msg, m.keys.SortDate):
-			sf := m.activeSortField()
-			if *sf == sortByDate {
-				*sf = sortNone
-			} else {
-				*sf = sortByDate
-			}
+			m.toggleSort(sortByDate, sortDesc)
+			m.applyFilterAndSort()
+			m.updateDetail()
+			return m, nil
+
+		case key.Matches(msg, m.keys.SortDateRev):
+			m.toggleSort(sortByDate, sortAsc)
 			m.applyFilterAndSort()
 			m.updateDetail()
 			return m, nil
 
 		case key.Matches(msg, m.keys.SortViews):
 			if m.activeView == viewVideos || m.activeView == viewPlaylistVideos {
-				sf := m.activeSortField()
-				if *sf == sortByViews {
-					*sf = sortNone
-				} else {
-					*sf = sortByViews
-				}
+				m.toggleSort(sortByViews, sortDesc)
+				m.applyFilterAndSort()
+				m.updateDetail()
+				return m, nil
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.SortViewsRev):
+			if m.activeView == viewVideos || m.activeView == viewPlaylistVideos {
+				m.toggleSort(sortByViews, sortAsc)
 				m.applyFilterAndSort()
 				m.updateDetail()
 				return m, nil
@@ -276,12 +292,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.SortDuration):
 			if m.activeView == viewVideos || m.activeView == viewPlaylistVideos {
-				sf := m.activeSortField()
-				if *sf == sortByDuration {
-					*sf = sortNone
-				} else {
-					*sf = sortByDuration
-				}
+				m.toggleSort(sortByDuration, sortDesc)
+				m.applyFilterAndSort()
+				m.updateDetail()
+				return m, nil
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.SortDurationRev):
+			if m.activeView == viewVideos || m.activeView == viewPlaylistVideos {
+				m.toggleSort(sortByDuration, sortAsc)
 				m.applyFilterAndSort()
 				m.updateDetail()
 				return m, nil
@@ -303,7 +323,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case playlistsFetchedMsg:
-		m.playlists = msg.playlists
+		filtered := msg.playlists[:0]
+		for _, p := range msg.playlists {
+			if p.ItemCount > 0 {
+				filtered = append(filtered, p)
+			}
+		}
+		m.playlists = filtered
 		m.playlistLoadState = loadDone
 		m.applyFilterAndSort()
 		m.updateDetail()
@@ -336,7 +362,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearVideoProgress()
 		// Always populate video list so tab bar count is correct even if
 		// we're on the playlists tab when this arrives in the background.
-		m.videoList.SetItems(m.sortedVideoItems(m.videos, m.videoSort))
+		m.videoList.SetItems(m.sortedVideoItems(m.videos, m.videoSort, m.videoSortDir))
 		m.applyFilterAndSort()
 		m.updateDetail()
 		return m, nil
@@ -456,13 +482,13 @@ func (m *Model) applyFilterAndSort() {
 		}
 		m.playlistList.SetItems(items)
 	case viewVideos:
-		items := m.sortedVideoItems(m.videos, m.videoSort)
+		items := m.sortedVideoItems(m.videos, m.videoSort, m.videoSortDir)
 		if m.filterText != "" {
 			items = m.filterItems(items, m.videoSort != sortNone)
 		}
 		m.videoList.SetItems(items)
 	case viewPlaylistVideos:
-		items := m.sortedVideoItems(m.playlistVideos, m.playlistVideoSort)
+		items := m.sortedVideoItems(m.playlistVideos, m.playlistVideoSort, m.playlistVideoSortDir)
 		if m.filterText != "" {
 			items = m.filterItems(items, m.playlistVideoSort != sortNone)
 		}
@@ -474,9 +500,15 @@ func (m *Model) sortedPlaylistItems() []list.Item {
 	sorted := make([]youtube.Playlist, len(m.playlists))
 	copy(sorted, m.playlists)
 
+	asc := m.playlistSortDir == sortAsc
 	switch m.playlistSort {
 	case sortByDate:
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].PublishedAt.After(sorted[j].PublishedAt) })
+		sort.Slice(sorted, func(i, j int) bool {
+			if asc {
+				return sorted[i].PublishedAt.Before(sorted[j].PublishedAt)
+			}
+			return sorted[i].PublishedAt.After(sorted[j].PublishedAt)
+		})
 	}
 
 	items := make([]list.Item, len(sorted))
@@ -486,17 +518,33 @@ func (m *Model) sortedPlaylistItems() []list.Item {
 	return items
 }
 
-func (m *Model) sortedVideoItems(videos []youtube.Video, sortBy sortField) []list.Item {
+func (m *Model) sortedVideoItems(videos []youtube.Video, sortBy sortField, dir sortDir) []list.Item {
 	sorted := make([]youtube.Video, len(videos))
 	copy(sorted, videos)
 
+	asc := dir == sortAsc
 	switch sortBy {
 	case sortByDate:
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].PublishedAt.After(sorted[j].PublishedAt) })
+		sort.Slice(sorted, func(i, j int) bool {
+			if asc {
+				return sorted[i].PublishedAt.Before(sorted[j].PublishedAt)
+			}
+			return sorted[i].PublishedAt.After(sorted[j].PublishedAt)
+		})
 	case sortByViews:
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].ViewCount > sorted[j].ViewCount })
+		sort.Slice(sorted, func(i, j int) bool {
+			if asc {
+				return sorted[i].ViewCount < sorted[j].ViewCount
+			}
+			return sorted[i].ViewCount > sorted[j].ViewCount
+		})
 	case sortByDuration:
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Duration > sorted[j].Duration })
+		sort.Slice(sorted, func(i, j int) bool {
+			if asc {
+				return sorted[i].Duration < sorted[j].Duration
+			}
+			return sorted[i].Duration > sorted[j].Duration
+		})
 	}
 
 	items := make([]list.Item, len(sorted))
@@ -570,6 +618,32 @@ func (m *Model) activeSortField() *sortField {
 		return &m.playlistVideoSort
 	}
 	return &m.playlistSort
+}
+
+func (m *Model) activeSortDir() *sortDir {
+	switch m.activeView {
+	case viewPlaylists:
+		return &m.playlistSortDir
+	case viewVideos:
+		return &m.videoSortDir
+	case viewPlaylistVideos:
+		return &m.playlistVideoSortDir
+	}
+	return &m.playlistSortDir
+}
+
+// toggleSort toggles a sort field+direction on/off. If the same field and
+// direction are already active, it clears the sort. Otherwise it activates
+// the requested field and direction.
+func (m *Model) toggleSort(field sortField, dir sortDir) {
+	sf := m.activeSortField()
+	sd := m.activeSortDir()
+	if *sf == field && *sd == dir {
+		*sf = sortNone
+	} else {
+		*sf = field
+		*sd = dir
+	}
 }
 
 func (m *Model) handleTabSwitch() (tea.Model, tea.Cmd) {
@@ -885,19 +959,27 @@ func (m Model) renderContent() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, listView, detail)
 }
 
+// sortIndicator returns ↓ or ↑ for the given direction.
+func sortIndicator(dir sortDir) string {
+	if dir == sortAsc {
+		return "↑"
+	}
+	return "↓"
+}
+
 // helpItem renders a compact help item where the key letter is highlighted.
-// If active is true, the whole thing is rendered in the active sort style.
-func helpItem(key, rest string, active bool) string {
+// If active is true, the whole thing is rendered in the active sort style with a direction arrow.
+func helpItem(key, rest string, active bool, dir sortDir) string {
 	if active {
-		return sortActiveStyle.Render(key+rest) + sortActiveStyle.Render("*")
+		return sortActiveStyle.Render(key+rest) + sortActiveStyle.Render(sortIndicator(dir))
 	}
 	return helpKeyStyle.Render(key) + helpDescStyle.Render(rest)
 }
 
 // helpItemMid renders a word with a highlighted key in the middle (e.g., d[u]ration).
-func helpItemMid(before, key, after string, active bool) string {
+func helpItemMid(before, key, after string, active bool, dir sortDir) string {
 	if active {
-		return sortActiveStyle.Render(before+key+after) + sortActiveStyle.Render("*")
+		return sortActiveStyle.Render(before+key+after) + sortActiveStyle.Render(sortIndicator(dir))
 	}
 	return helpDescStyle.Render(before) + helpKeyStyle.Render(key) + helpDescStyle.Render(after)
 }
@@ -907,35 +989,35 @@ func (m Model) renderHelpBar() string {
 	sep := helpDescStyle.Render(" · ")
 
 	// Filter status
-	parts = append(parts, helpItem("/", "filter", false))
+	parts = append(parts, helpItem("/", "filter", false, sortDesc))
 	if m.filterText != "" {
-		parts = append(parts, helpItem("esc", " clear", false))
+		parts = append(parts, helpItem("esc", " clear", false, sortDesc))
 	}
 
 	switch m.activeView {
 	case viewPlaylists:
-		parts = append(parts, helpItem("tab", " switch", false))
-		parts = append(parts, helpItem("⏎", " view", false))
-		parts = append(parts, helpItem("o", "pen", false))
-		parts = append(parts, helpItem("d", "ate", m.playlistSort == sortByDate))
+		parts = append(parts, helpItem("tab", " switch", false, sortDesc))
+		parts = append(parts, helpItem("⏎", " view", false, sortDesc))
+		parts = append(parts, helpItem("o", "pen", false, sortDesc))
+		parts = append(parts, helpItem("d", "ate", m.playlistSort == sortByDate, m.playlistSortDir))
 
 	case viewVideos:
-		parts = append(parts, helpItem("tab", " switch", false))
-		parts = append(parts, helpItem("⏎", " open", false))
-		parts = append(parts, helpItem("d", "ate", m.videoSort == sortByDate))
-		parts = append(parts, helpItem("v", "iews", m.videoSort == sortByViews))
-		parts = append(parts, helpItemMid("d", "u", "ration", m.videoSort == sortByDuration))
+		parts = append(parts, helpItem("tab", " switch", false, sortDesc))
+		parts = append(parts, helpItem("⏎", " open", false, sortDesc))
+		parts = append(parts, helpItem("d", "ate", m.videoSort == sortByDate, m.videoSortDir))
+		parts = append(parts, helpItem("v", "iews", m.videoSort == sortByViews, m.videoSortDir))
+		parts = append(parts, helpItemMid("d", "u", "ration", m.videoSort == sortByDuration, m.videoSortDir))
 
 	case viewPlaylistVideos:
-		parts = append(parts, helpItem("⌫", " back", false))
-		parts = append(parts, helpItem("⏎", " open", false))
-		parts = append(parts, helpItem("d", "ate", m.playlistVideoSort == sortByDate))
-		parts = append(parts, helpItem("v", "iews", m.playlistVideoSort == sortByViews))
-		parts = append(parts, helpItemMid("d", "u", "ration", m.playlistVideoSort == sortByDuration))
+		parts = append(parts, helpItem("⌫", " back", false, sortDesc))
+		parts = append(parts, helpItem("⏎", " open", false, sortDesc))
+		parts = append(parts, helpItem("d", "ate", m.playlistVideoSort == sortByDate, m.playlistVideoSortDir))
+		parts = append(parts, helpItem("v", "iews", m.playlistVideoSort == sortByViews, m.playlistVideoSortDir))
+		parts = append(parts, helpItemMid("d", "u", "ration", m.playlistVideoSort == sortByDuration, m.playlistVideoSortDir))
 	}
 
-	parts = append(parts, helpItem("?", " help", false))
-	parts = append(parts, helpItem("q", "uit", false))
+	parts = append(parts, helpItem("?", " help", false, sortDesc))
+	parts = append(parts, helpItem("q", "uit", false, sortDesc))
 
 	return strings.Join(parts, sep)
 }
@@ -961,9 +1043,9 @@ func (m Model) renderHelpOverlay() string {
 	lines = append(lines, row("/", "Start filtering"))
 	lines = append(lines, row("esc", "Clear filter"))
 	lines = append(lines, row("ctrl+f", "Toggle fuzzy / exact filter"))
-	lines = append(lines, row("d", "Sort by date (toggle)"))
-	lines = append(lines, row("v", "Sort by views (toggle)"))
-	lines = append(lines, row("u", "Sort by duration (toggle)"))
+	lines = append(lines, row("d / D", "Sort by date (newest / oldest)"))
+	lines = append(lines, row("v / V", "Sort by views (most / fewest)"))
+	lines = append(lines, row("u / U", "Sort by duration (longest / shortest)"))
 	lines = append(lines, "")
 	lines = append(lines, helpOverlayTitleStyle.Render("Other"))
 	lines = append(lines, row("r", "Refresh data from API"))

@@ -13,8 +13,11 @@ type keyMap struct {
 	ClearFilter      key.Binding
 	ToggleFilterMode key.Binding
 	SortDate         key.Binding
+	SortDateRev      key.Binding
 	SortViews        key.Binding
+	SortViewsRev     key.Binding
 	SortDuration     key.Binding
+	SortDurationRev  key.Binding
 	Refresh          key.Binding
 	Help             key.Binding
 }
@@ -61,13 +64,25 @@ func defaultKeyMap() keyMap {
 			key.WithKeys("d"),
 			key.WithHelp("d", "sort by date"),
 		),
+		SortDateRev: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "sort by date (reverse)"),
+		),
 		SortViews: key.NewBinding(
 			key.WithKeys("v"),
 			key.WithHelp("v", "sort by views"),
 		),
+		SortViewsRev: key.NewBinding(
+			key.WithKeys("V"),
+			key.WithHelp("V", "sort by views (reverse)"),
+		),
 		SortDuration: key.NewBinding(
 			key.WithKeys("u"),
 			key.WithHelp("u", "sort by duration"),
+		),
+		SortDurationRev: key.NewBinding(
+			key.WithKeys("U"),
+			key.WithHelp("U", "sort by duration (reverse)"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
