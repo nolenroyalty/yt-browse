@@ -1250,7 +1250,10 @@ func (m *Model) updateSizes() {
 	}
 
 	if m.showDetail {
-		listWidth := m.width * 3 / 5
+		listWidth := m.width * 45 / 100
+		if listWidth > 100 {
+			listWidth = 100
+		}
 		detailWidth := m.width - listWidth - 1
 
 		m.playlistList.SetWidth(listWidth)
@@ -1275,7 +1278,11 @@ func (m *Model) detailWidth() int {
 	if !m.showDetail {
 		return 0
 	}
-	return m.width - (m.width * 3 / 5) - 1
+	listWidth := m.width * 45 / 100
+	if listWidth > 100 {
+		listWidth = 100
+	}
+	return m.width - listWidth - 1
 }
 
 // --- rendering ---

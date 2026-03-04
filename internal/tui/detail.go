@@ -23,21 +23,21 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 		return s
 	}
 
-	highlightDesc := func(s string) string {
+	// highlightText highlights filter matches in wrapped text, line by line.
+	highlightText := func(s string, base lipgloss.Style) string {
 		wrapped := wrap(s)
 		if filter == nil || filter.text == "" || filter.mode == filterFuzzy {
-			return detailValueStyle.Render(wrapped)
+			return base.Render(wrapped)
 		}
-		// Highlight line by line to preserve newlines
 		lines := strings.Split(wrapped, "\n")
 		for i, line := range lines {
 			matches := computeMatches(line, filter.text, filter)
 			if len(matches) > 0 {
-				unmatched := detailValueStyle.Inline(true)
+				unmatched := base.Inline(true)
 				matched := unmatched.Underline(true)
 				lines[i] = lipgloss.StyleRunes(line, matches, matched, unmatched)
 			} else {
-				lines[i] = detailValueStyle.Render(line)
+				lines[i] = base.Render(line)
 			}
 		}
 		return strings.Join(lines, "\n")
@@ -46,7 +46,7 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 	switch v := item.(type) {
 	case PlaylistItem:
 		p := v.playlist
-		b.WriteString(detailTitleStyle.Render(wrap(p.Title)))
+		b.WriteString(highlightText(p.Title, detailTitleStyle))
 		b.WriteString("\n\n")
 		b.WriteString(detailLabelStyle.Render("Videos: "))
 		b.WriteString(detailValueStyle.Render(fmt.Sprintf("%d", p.ItemCount)))
@@ -61,14 +61,14 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 		b.WriteString(detailLabelStyle.Render("Description:"))
 		b.WriteString("\n")
 		if p.Description != "" {
-			b.WriteString(highlightDesc(p.Description))
+			b.WriteString(highlightText(p.Description, detailValueStyle))
 		} else {
 			b.WriteString(detailLabelStyle.Render("No description"))
 		}
 
 	case VideoItem:
 		vid := v.video
-		b.WriteString(detailTitleStyle.Render(wrap(vid.Title)))
+		b.WriteString(highlightText(vid.Title, detailTitleStyle))
 		b.WriteString("\n\n")
 		b.WriteString(detailLabelStyle.Render("Duration: "))
 		b.WriteString(detailValueStyle.Render(formatDuration(vid.Duration)))
@@ -89,7 +89,7 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 		b.WriteString(detailLabelStyle.Render("Description:"))
 		b.WriteString("\n")
 		if vid.Description != "" {
-			b.WriteString(highlightDesc(vid.Description))
+			b.WriteString(highlightText(vid.Description, detailValueStyle))
 		} else {
 			b.WriteString(detailLabelStyle.Render("No description"))
 		}
