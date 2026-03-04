@@ -106,7 +106,6 @@ If omitted, opens a picker with your recently-browsed channels.
 | `v` / `V` | Sort by views (most / fewest) |
 | `u` / `U` | Sort by duration (longest / shortest) |
 | `c` / `C` | Sort by count (most / fewest, playlists only) |
-| `s` | Toggle showing shorts (≤60s) |
 
 You can also use `before:` and `after:` date filters (e.g. `after:2024 before:2025-06`).
 
