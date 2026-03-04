@@ -75,8 +75,16 @@ func (c *Client) FetchPlaylists(ctx context.Context, channelID string) ([]Playli
 // Works for uploads playlists, user-created playlists, or any other playlist ID.
 // If onProgress is non-nil, it is called with (total, loaded) counts during fetching.
 //
-// Pagination and detail fetches are pipelined: as each page of IDs arrives,
-// a goroutine immediately starts fetching details for those IDs (up to 5 concurrent).
+// This is unavoidably slow for large channels. The YouTube API requires two steps:
+// (1) PlaylistItems.List to get video IDs, (2) Videos.List for details (stats, duration).
+// Step 1 uses opaque cursor-based pagination (nextPageToken) with max 50 items per page,
+// so there's no way to parallelize it — each page requires the previous page's token.
+// The Search API supports date-range filters that would allow partitioning, but costs
+// 100 quota units/request vs 1 for PlaylistItems, making it infeasible for large channels.
+//
+// We do the best we can: detail fetches are pipelined behind the pagination loop so that
+// as each page of IDs arrives, a goroutine immediately fetches details (up to 5 concurrent).
+// The Go HTTP client reuses connections (HTTP/2) to googleapis.com automatically.
 func (c *Client) FetchVideos(ctx context.Context, playlistID string, channelID string, onProgress func(total, loaded int)) ([]Video, error) {
 	var (
 		mu        sync.Mutex
