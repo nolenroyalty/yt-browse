@@ -137,6 +137,7 @@ type Model struct {
 	fstate             *filterState // shared with delegate for match highlighting
 	sortOverridesFuzzy bool         // user manually changed sort while fuzzy filter is active
 	filterTitlesOnly   bool         // only search titles (not descriptions) in non-fuzzy modes
+	filterSeq          int          // incremented on each keystroke; debounce checks for staleness
 	savedFilterText    string       // preserved playlist filter during drill-in
 
 	// Detail
@@ -483,9 +484,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.videos = msg.videos
 		m.videoLoadState = loadDone
 		m.clearVideoProgress()
-		// Always populate video list so tab bar count is correct even if
-		// we're on the playlists tab when this arrives in the background.
-		m.videoList.SetItems(m.sortedVideoItems(m.videos, m.videoSort, m.videoSortDir))
+		// applyFilterAndSort only processes the active view, so when videos
+		// load in the background (user on playlists tab) we need to populate
+		// the video list explicitly for correct tab bar counts.
+		if m.activeView != viewVideos {
+			m.videoList.SetItems(m.sortedVideoItems(m.videos, m.videoSort, m.videoSortDir))
+		}
 		m.applyFilterAndSort()
 		m.updateDetail()
 		return m, nil
@@ -514,6 +518,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clearFlashMsg:
 		m.flashMessage = ""
 		m.fstate.flashOn = false
+		return m, nil
+
+	case filterDebounceMsg:
+		if msg.seq == m.filterSeq {
+			m.applyFilterAndSort()
+			m.updateDetail()
+		}
 		return m, nil
 
 	}
@@ -709,11 +720,14 @@ func (m *Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Forward to textinput
 		var cmd tea.Cmd
 		m.filterInput, cmd = m.filterInput.Update(msg)
-		// Live-filter as user types
+		// Update filterText immediately so the input displays correctly,
+		// but debounce the expensive applyFilterAndSort call.
 		m.filterText = m.filterInput.Value()
-		m.applyFilterAndSort()
-		m.updateDetail()
-		return m, cmd
+		m.filterSeq++
+		seq := m.filterSeq
+		return m, tea.Batch(cmd, tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg {
+			return filterDebounceMsg{seq: seq}
+		}))
 	}
 }
 
@@ -724,6 +738,21 @@ func (m *Model) applyFilterAndSort() {
 	cleanText, _, _ := extractDateFilters(m.filterText)
 	m.fstate.text = cleanText
 	m.fstate.mode = m.filterMode
+
+	// Pre-compile regex once per filter change instead of per-item.
+	// On invalid regex, keep the last valid results visible.
+	if m.filterMode == filterRegex && cleanText != "" {
+		re, err := regexp.Compile("(?i)" + cleanText)
+		if err != nil {
+			m.fstate.regexError = true
+			return // keep last valid results in the list
+		}
+		m.fstate.compiledRe = re
+		m.fstate.regexError = false
+	} else {
+		m.fstate.compiledRe = nil
+		m.fstate.regexError = false
+	}
 
 	// In fuzzy mode, relevance ranking wins over explicit sort — unless
 	// the user manually toggled a sort while the fuzzy filter was active.
@@ -920,18 +949,19 @@ func (m *Model) filterItems(items []list.Item, preserveOrder bool) []list.Item {
 
 	switch m.filterMode {
 	case filterExact:
-		// Case-insensitive substring match
-		lower := strings.ToLower(query)
 		var filtered []list.Item
 		for _, item := range items {
-			if strings.Contains(strings.ToLower(searchText(item)), lower) {
+			if matchIndices(searchText(item), query, filterExact, nil) != nil {
 				filtered = append(filtered, item)
 			}
 		}
 		return filtered
 
 	case filterWords:
-		// All words must appear (case-insensitive, any order)
+		// All words must appear (case-insensitive, any order).
+		// matchIndices does best-effort per-word highlighting, but filtering
+		// requires ALL words present — semantics differ, so we keep the
+		// filtering logic here.
 		words := strings.Fields(strings.ToLower(query))
 		var filtered []list.Item
 		for _, item := range items {
@@ -950,14 +980,12 @@ func (m *Model) filterItems(items []list.Item, preserveOrder bool) []list.Item {
 		return filtered
 
 	case filterRegex:
-		re, err := regexp.Compile("(?i)" + query)
-		if err != nil {
-			// Invalid regex — show nothing rather than everything
+		if m.fstate.compiledRe == nil {
 			return nil
 		}
 		var filtered []list.Item
 		for _, item := range items {
-			if re.MatchString(searchText(item)) {
+			if m.fstate.compiledRe.MatchString(searchText(item)) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -1415,15 +1443,20 @@ func (m Model) renderFilterBar() string {
 		modeHint = filterModeStyle.Render("[" + modeLabel + " · " + scopeLabel + " · ctrl+t/ctrl+d]")
 	}
 
+	var regexHint string
+	if m.fstate.regexError {
+		regexHint = "  " + filterModeStyle.Foreground(lipgloss.Color("#FF8800")).Render("invalid regex")
+	}
+
 	if m.filtering {
-		return m.filterInput.View() + "  " + modeHint
+		return m.filterInput.View() + "  " + modeHint + regexHint
 	}
 
 	if m.filterText != "" {
 		// Show applied filter (not actively editing)
 		return filterPromptStyle.Render("  /") +
 			filterTextStyle.Render(m.filterText) +
-			"  " + modeHint +
+			"  " + modeHint + regexHint +
 			"  " + helpDescStyle.Render("(esc to clear)")
 	}
 

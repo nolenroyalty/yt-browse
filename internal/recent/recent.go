@@ -26,9 +26,15 @@ func NewStore(path string) *Store {
 }
 
 // Load reads recent entries from disk, sorted by LastUsed descending.
+// Returns an empty slice for file-not-found, nil for corrupt/unreadable JSON.
+// Callers that write (Add, Remove) check for nil to avoid overwriting a
+// corrupt file with partial data.
 func (s *Store) Load() []Entry {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []Entry{}
+		}
 		return nil
 	}
 	var entries []Entry
@@ -44,6 +50,9 @@ func (s *Store) Load() []Entry {
 // Add upserts a channel entry, bumps LastUsed, trims to maxEntries, and writes.
 func (s *Store) Add(id, title, handle string) {
 	entries := s.Load()
+	if entries == nil {
+		return // corrupt file — don't overwrite with partial data
+	}
 
 	// Upsert
 	found := false
@@ -80,6 +89,9 @@ func (s *Store) Add(id, title, handle string) {
 // Remove deletes the entry with the given ID and writes the updated list.
 func (s *Store) Remove(id string) {
 	entries := s.Load()
+	if entries == nil {
+		return // corrupt file — don't overwrite with partial data
+	}
 	for i := range entries {
 		if entries[i].ID == id {
 			entries = append(entries[:i], entries[i+1:]...)

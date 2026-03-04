@@ -31,7 +31,7 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 		// Highlight line by line to preserve newlines
 		lines := strings.Split(wrapped, "\n")
 		for i, line := range lines {
-			matches := computeMatches(line, filter.text, filter.mode)
+			matches := computeMatches(line, filter.text, filter)
 			if len(matches) > 0 {
 				unmatched := detailValueStyle.Inline(true)
 				matched := unmatched.Underline(true)

@@ -69,8 +69,9 @@ var (
 			Italic(true)
 
 	// Flash message
+	flashColor = lipgloss.Color("#00FF00")
 	flashStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00")).
+			Foreground(flashColor).
 			Bold(true)
 
 	// Error

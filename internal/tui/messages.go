@@ -40,3 +40,6 @@ type recentChannelRemovedMsg struct{}
 
 // UI flash
 type clearFlashMsg struct{}
+
+// Filter debounce
+type filterDebounceMsg struct{ seq int }
