@@ -47,7 +47,7 @@ Add this to your shell profile (`.bashrc`, `.zshrc`, etc.) to persist it.
 Requires [Go](https://go.dev/) 1.21+.
 
 ```bash
-git clone https://github.com/nroyalty/yt-browse
+git clone https://github.com/nolenroyalty/yt-browse
 cd yt-browse
 go build -o yt-browse ./cmd/yt-browse
 ```
