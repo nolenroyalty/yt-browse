@@ -137,6 +137,7 @@ type Model struct {
 	fstate             *filterState // shared with delegate for match highlighting
 	sortOverridesFuzzy bool         // user manually changed sort while fuzzy filter is active
 	filterTitlesOnly   bool         // only search titles (not descriptions) in non-fuzzy modes
+	savedFilterText    string       // preserved playlist filter during drill-in
 
 	// Detail
 	detailViewport viewport.Model
@@ -1100,6 +1101,7 @@ func (m *Model) handleEnter() (tea.Model, tea.Cmd) {
 		m.playlistVideoLoadState = loadLoading
 		m.playlistVideos = nil
 		m.playlistVideoSort = sortNone
+		m.savedFilterText = m.filterText
 		m.filterText = ""
 		m.fstate.text = ""
 		m.sortOverridesFuzzy = false
@@ -1170,8 +1172,9 @@ func (m *Model) handleBack() (tea.Model, tea.Cmd) {
 	m.playlistVideos = nil
 	m.playlistVideoLoadState = loadIdle
 	m.playlistVideoSort = sortNone
-	m.filterText = ""
-	m.fstate.text = ""
+	m.filterText = m.savedFilterText
+	m.fstate.text = m.savedFilterText
+	m.savedFilterText = ""
 	m.sortOverridesFuzzy = false
 	m.applyFilterAndSort()
 	m.updateDetail()
