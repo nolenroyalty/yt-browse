@@ -12,7 +12,8 @@ type keyMap struct {
 	Back             key.Binding
 	Filter           key.Binding
 	ClearFilter      key.Binding
-	ToggleFilterMode key.Binding
+	ToggleFilterMode  key.Binding
+	ToggleFilterScope key.Binding
 	SortDate         key.Binding
 	SortDateRev      key.Binding
 	SortViews        key.Binding
@@ -66,6 +67,10 @@ func defaultKeyMap() keyMap {
 		ToggleFilterMode: key.NewBinding(
 			key.WithKeys("ctrl+t"),
 			key.WithHelp("ctrl+t", "toggle fuzzy/exact"),
+		),
+		ToggleFilterScope: key.NewBinding(
+			key.WithKeys("ctrl+d"),
+			key.WithHelp("ctrl+d", "toggle title/desc search"),
 		),
 		SortDate: key.NewBinding(
 			key.WithKeys("d"),

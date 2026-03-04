@@ -136,6 +136,7 @@ type Model struct {
 	filterMode         filterMode   // fuzzy or exact
 	fstate             *filterState // shared with delegate for match highlighting
 	sortOverridesFuzzy bool         // user manually changed sort while fuzzy filter is active
+	filterTitlesOnly   bool         // only search titles (not descriptions) in non-fuzzy modes
 
 	// Detail
 	detailViewport viewport.Model
@@ -185,7 +186,7 @@ func New(cfg *config.Config, ytClient *youtube.Client, cacheStore *cache.Store, 
 	pickerList.DisableQuitKeybindings()
 
 	fi := textinput.New()
-	fi.Prompt = "/ "
+	fi.Prompt = "  / "
 	styles := fi.Styles()
 	styles.Focused.Prompt = filterPromptStyle
 	styles.Focused.Text = filterTextStyle
@@ -331,6 +332,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+			if m.filterText != "" {
+				m.applyFilterAndSort()
+				m.updateDetail()
+			}
+			return m, nil
+
+		case key.Matches(msg, m.keys.ToggleFilterScope):
+			m.filterTitlesOnly = !m.filterTitlesOnly
 			if m.filterText != "" {
 				m.applyFilterAndSort()
 				m.updateDetail()
@@ -539,10 +548,7 @@ func (m Model) View() tea.View {
 	sections = append(sections, m.renderHeader())
 	sections = append(sections, m.renderTabBar())
 
-	// Filter bar (shown when filtering or filter is active)
-	if m.filtering || m.filterText != "" {
-		sections = append(sections, m.renderFilterBar())
-	}
+	sections = append(sections, m.renderFilterBar())
 
 	sections = append(sections, m.renderContent())
 	sections = append(sections, m.renderHelpBar())
@@ -677,6 +683,12 @@ func (m *Model) handleFilterKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		m.filterText = m.filterInput.Value()
+		m.applyFilterAndSort()
+		m.updateDetail()
+		return m, nil
+	case key.Matches(msg, m.keys.ToggleFilterScope):
+		m.filterTitlesOnly = !m.filterTitlesOnly
 		m.filterText = m.filterInput.Value()
 		m.applyFilterAndSort()
 		m.updateDetail()
@@ -883,13 +895,24 @@ func (m *Model) filterItems(items []list.Item, preserveOrder bool) []list.Item {
 		return items
 	}
 
+	// searchText returns the text to match against, respecting the titles-only toggle.
+	// Fuzzy always uses title only (handled separately below).
+	searchText := func(item list.Item) string {
+		if m.filterTitlesOnly {
+			if di, ok := item.(interface{ Title() string }); ok {
+				return di.Title()
+			}
+		}
+		return item.FilterValue()
+	}
+
 	switch m.filterMode {
 	case filterExact:
 		// Case-insensitive substring match
 		lower := strings.ToLower(query)
 		var filtered []list.Item
 		for _, item := range items {
-			if strings.Contains(strings.ToLower(item.FilterValue()), lower) {
+			if strings.Contains(strings.ToLower(searchText(item)), lower) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -900,7 +923,7 @@ func (m *Model) filterItems(items []list.Item, preserveOrder bool) []list.Item {
 		words := strings.Fields(strings.ToLower(query))
 		var filtered []list.Item
 		for _, item := range items {
-			val := strings.ToLower(item.FilterValue())
+			val := strings.ToLower(searchText(item))
 			match := true
 			for _, w := range words {
 				if !strings.Contains(val, w) {
@@ -922,7 +945,7 @@ func (m *Model) filterItems(items []list.Item, preserveOrder bool) []list.Item {
 		}
 		var filtered []list.Item
 		for _, item := range items {
-			if re.MatchString(item.FilterValue()) {
+			if re.MatchString(searchText(item)) {
 				filtered = append(filtered, item)
 			}
 		}
@@ -1223,10 +1246,7 @@ func (m *Model) updateSizes() {
 		return
 	}
 
-	headerHeight := 2 // header + tab bar
-	if m.filtering || m.filterText != "" {
-		headerHeight++ // filter bar
-	}
+	headerHeight := 3 // header + tab bar + filter bar
 	helpHeight := 1
 	contentHeight := m.height - headerHeight - helpHeight
 	if contentHeight < 1 {
@@ -1338,13 +1358,7 @@ func (m Model) renderTabBar() string {
 
 	videoLabel := "Videos"
 	if m.videoLoadState == loadDone {
-		total := len(m.videos)
-		shown := len(m.videoList.Items())
-		if shown < total {
-			videoLabel = fmt.Sprintf("Videos (%d/%d)", shown, total)
-		} else {
-			videoLabel = fmt.Sprintf("Videos (%d)", total)
-		}
+		videoLabel = fmt.Sprintf("Videos (%d)", len(m.videos))
 	} else if m.videoLoadState == loadLoading {
 		if m.videoTotal > 0 {
 			videoLabel = fmt.Sprintf("Videos (%d/%d)", m.videoLoaded, m.videoTotal)
@@ -1368,17 +1382,31 @@ func (m Model) renderTabBar() string {
 func (m Model) renderFilterBar() string {
 	modeLabel := m.filterMode.String()
 
-	modeHint := filterModeStyle.Render("[" + modeLabel + " · ctrl+t to change]")
+	var modeHint string
+	if m.filterMode == filterFuzzy {
+		modeHint = filterModeStyle.Render("[" + modeLabel + " · ctrl+t]")
+	} else {
+		scopeLabel := "titles+desc"
+		if m.filterTitlesOnly {
+			scopeLabel = "titles"
+		}
+		modeHint = filterModeStyle.Render("[" + modeLabel + " · " + scopeLabel + " · ctrl+t/ctrl+d]")
+	}
 
 	if m.filtering {
 		return m.filterInput.View() + "  " + modeHint
 	}
 
-	// Show applied filter (not actively editing)
-	return filterPromptStyle.Render("/ ") +
-		filterTextStyle.Render(m.filterText) +
-		"  " + modeHint +
-		"  " + helpDescStyle.Render("(esc to clear)")
+	if m.filterText != "" {
+		// Show applied filter (not actively editing)
+		return filterPromptStyle.Render("  / ") +
+			filterTextStyle.Render(m.filterText) +
+			"  " + modeHint +
+			"  " + helpDescStyle.Render("(esc to clear)")
+	}
+
+	// No filter active — show hint
+	return helpDescStyle.Render("  / to filter")
 }
 
 func (m Model) renderContent() string {
@@ -1520,6 +1548,7 @@ func (m Model) renderHelpOverlay() string {
 	lines = append(lines, row("/", "Start filtering"))
 	lines = append(lines, row("esc", "Clear filter"))
 	lines = append(lines, row("ctrl+t", "Cycle filter mode (fuzzy/exact/words/regex)"))
+	lines = append(lines, row("ctrl+d", "Toggle title-only / title+description search"))
 	lines = append(lines, row("before/after:", "Date filter (YYYY, YYYY-MM, YYYY-MM-DD)"))
 	lines = append(lines, row("d / D", "Sort by date (newest / oldest)"))
 	lines = append(lines, row("v / V", "Sort by views (most / fewest)"))

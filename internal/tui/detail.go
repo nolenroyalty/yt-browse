@@ -57,11 +57,13 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 		b.WriteString(detailLabelStyle.Render("URL: "))
 		b.WriteString(detailValueStyle.Render(p.URL()))
 		b.WriteString("\n")
+		b.WriteString("\n")
+		b.WriteString(detailLabelStyle.Render("Description:"))
+		b.WriteString("\n")
 		if p.Description != "" {
-			b.WriteString("\n")
-			b.WriteString(detailLabelStyle.Render("Description:"))
-			b.WriteString("\n")
 			b.WriteString(highlightDesc(p.Description))
+		} else {
+			b.WriteString(detailLabelStyle.Render("No description"))
 		}
 
 	case VideoItem:
@@ -83,11 +85,13 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 		b.WriteString(detailLabelStyle.Render("URL: "))
 		b.WriteString(detailValueStyle.Render(vid.URL()))
 		b.WriteString("\n")
+		b.WriteString("\n")
+		b.WriteString(detailLabelStyle.Render("Description:"))
+		b.WriteString("\n")
 		if vid.Description != "" {
-			b.WriteString("\n")
-			b.WriteString(detailLabelStyle.Render("Description:"))
-			b.WriteString("\n")
 			b.WriteString(highlightDesc(vid.Description))
+		} else {
+			b.WriteString(detailLabelStyle.Render("No description"))
 		}
 	}
 
