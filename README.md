@@ -12,6 +12,7 @@ The youtube channel search experience is *bad*. You can't limit your search to j
 * Search and order videos *within* a playlist
 * Restrict your search to specific date ranges with `before:` and `after:` filters
 * All data is cached; search is instant after an initial (once a day per channel) download
+* Running without arguments lets you pick from recent channels
 
 `yt-browse` is built for my own needs; my favorite channels have thousands of videos and hundreds of playlists and it's a pain to find the one that I want. But through the magic of vibe-coding, it wasn't that much work to (hopefully) make it usable for you too.
 
