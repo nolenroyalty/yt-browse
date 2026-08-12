@@ -25,7 +25,7 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 
 	// highlightText highlights filter matches in wrapped text, line by line.
 	highlightText := func(s string, base lipgloss.Style) string {
-		wrapped := wrap(s)
+		wrapped := wrap(normalizeText(s))
 		if filter == nil || filter.text == "" || filter.mode == filterFuzzy {
 			return base.Render(wrapped)
 		}
@@ -96,6 +96,18 @@ func renderDetail(item list.Item, width int, filter *filterState) string {
 	}
 
 	return b.String()
+}
+
+// normalizeText strips carriage returns and trailing whitespace from each
+// line. YouTube descriptions can contain CRLF line endings; a literal \r
+// written to the terminal snaps the cursor back to column 0, so the padding
+// after it overwrites the left side of the row (i.e. the list pane).
+func normalizeText(s string) string {
+	lines := strings.Split(strings.ReplaceAll(s, "\r", ""), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " \t")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func formatDuration(d time.Duration) string {

@@ -49,6 +49,23 @@ func matchIndices(text, query string, mode filterMode, compiledRe *regexp.Regexp
 		if len(matches) == 0 {
 			return nil
 		}
-		return matches[0].MatchedIndexes
+		// fuzzy.MatchedIndexes are byte offsets; StyleRunes wants rune indices.
+		return byteToRuneIndices(text, matches[0].MatchedIndexes)
 	}
+}
+
+func byteToRuneIndices(s string, byteIndices []int) []int {
+	byteToRune := make(map[int]int, len(s))
+	runeIdx := 0
+	for i := range s {
+		byteToRune[i] = runeIdx
+		runeIdx++
+	}
+	indices := make([]int, 0, len(byteIndices))
+	for _, b := range byteIndices {
+		if r, ok := byteToRune[b]; ok {
+			indices = append(indices, r)
+		}
+	}
+	return indices
 }
